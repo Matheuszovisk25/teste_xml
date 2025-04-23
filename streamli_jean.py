@@ -42,7 +42,7 @@ def editar_executora_equipe(root, tree, xml_path):
         executora = executoras.find("Executora")
 
     if executora is not None:
-        st.subheader("Editar Executora")
+        st.subheader("🏛️ Editar Executora")
 
         # Editar campos principais
         cnpj = st.text_input("CNPJ da Executora", executora.findtext("CNPJExec", ""), key="cnpj_exec")
@@ -59,18 +59,16 @@ def editar_executora_equipe(root, tree, xml_path):
             equipe = ET.SubElement(executora, "Equipe")
 
         st.markdown("---")
-        st.subheader("Membros da Equipe Executora")
+        st.subheader("👥 Membros da Equipe Executora")
 
         membros_lista = equipe.findall("EquipeExec")
-        nomes = [
-            membro.findtext("NomeMbEqExec") or f"Membro {i + 1}" 
-            for i, membro in enumerate(membros_lista)
-        ]
+        nomes = [m.findtext("NomeMbEqExec") or f"Membro {i + 1}" for i, m in enumerate(membros_lista)]
 
-        selecionado = st.selectbox("Selecione um membro para editar", nomes + ["➕ Novo Membro"], key="select_membro")
+        NOME_NOVO = "➕ Novo Membro"
+        selecionado = st.selectbox("Selecione um membro para editar", nomes + [NOME_NOVO], key="select_membro")
 
         # Adicionar novo membro se selecionado
-        if selecionado == "Novo Membro":
+        if selecionado == NOME_NOVO:
             novo = ET.SubElement(equipe, "EquipeExec")
             for tag in [
                 "NomeMbEqExec", "BRMbEqExec", "DocMbEqExec", "TitulacaoMbEqExec",
@@ -80,11 +78,11 @@ def editar_executora_equipe(root, tree, xml_path):
             tree.write(xml_path, encoding="utf-8", xml_declaration=True)
             st.rerun()
 
-        # Identificar índice e membro a editar
+        # Atualizar dados do membro selecionado
         indice = nomes.index(selecionado) if selecionado in nomes else len(membros_lista) - 1
         membro = membros_lista[indice]
 
-        st.markdown(f"### Dados de {selecionado}")
+        st.markdown(f"### ✏️ Dados de {selecionado}")
         dados = {}
         for campo in membro:
             valor = st.text_input(f"{campo.tag} - {selecionado}", campo.text or "", key=f"{campo.tag}_{indice}")
@@ -94,8 +92,9 @@ def editar_executora_equipe(root, tree, xml_path):
         return executora, membros_exec
 
     else:
-        st.error("Nenhuma tag <Executora> foi encontrada.")
+        st.error("❌ Nenhuma tag <Executora> foi encontrada.")
         return None, []
+
     
 
 # Edita o bloco <PD_Etapas>
