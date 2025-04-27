@@ -10,11 +10,94 @@ def carregar_xml(xml_path):
 
 # Edita o bloco <PD_RelFinalBase>
 def editar_relatorio(rel_final):
-    st.subheader("PD_RelFinalBase")
+    st.subheader("📝 Informações Gerais do Relatório Final")
+
+    nomes_campos = {
+        "CodProjeto": "Código do Projeto (ANEEL)",
+        "ArquivoPDF": "Nome do Arquivo PDF",
+        "DataIniODS": "Data de Início da ODS",
+        "DataFimODS": "Data de Término da ODS",
+        "ProdPrev": "Produto Previsto Alcançado?",
+        "ProdJust": "Justificativa do Produto",
+        "ProdEspTec": "Especificação Técnica do Produto",
+        "TecPrev": "Técnica Prevista Implementada?",
+        "TecJust": "Justificativa da Técnica",
+        "TecDesc": "Descrição da Técnica Empregada",
+        "AplicPrev": "Aplicabilidade Prevista Alcançada?",
+        "AplicJust": "Justificativa da Aplicabilidade",
+        "AplicFnc": "Resultados dos Testes de Funcionalidade",
+        "AplicAbrang": "Abrangência da Aplicação",
+        "AplicAmbito": "Âmbito de Aplicação",
+        "TxDifTec": "Transferência ou Difusão Tecnológica"
+    }
+
+    campos_sn = {"ProdPrev", "TecPrev", "AplicPrev"}
+
+    campos_limite_1000 = {
+        "ProdJust", "ProdEspTec", "TecJust", "TecDesc",
+        "AplicJust", "AplicFnc", "AplicAbrang", "AplicAmbito", "TxDifTec"
+    }
+
     campos = {}
     for child in rel_final:
-        campos[child.tag] = st.text_area(child.tag, child.text or "", height=100, key=f"rel_{child.tag}")
+        label = nomes_campos.get(child.tag, child.tag)
+
+        if child.tag in campos_sn:
+            valor = st.selectbox(label, ["S", "N"], index=0 if (child.text or "S").upper() == "S" else 1, key=f"rel_{child.tag}")
+        elif child.tag in campos_limite_1000:
+            valor = st.text_area(label, child.text or "", height=100, key=f"rel_{child.tag}")
+            num_chars = len(valor)
+            if num_chars > 1000:
+                st.warning(f"O campo '{label}' ultrapassou 1000 caracteres ({num_chars}). Será cortado.")
+                valor = valor[:1000]
+        else:
+            valor = st.text_area(label, child.text or "", height=100, key=f"rel_{child.tag}")
+
+        campos[child.tag] = valor
+
     return campos
+
+
+#----------------------------------------------------------------------------------------------|
+#----------------------------------COMEÇO CAMPOS PRINCIPAIS EXECUTORA--------------------------|
+#----------------------------------------------------------------------------------------------|
+
+
+#---------------------------------------------INICIO Funções de manipulaçao de membros----------------
+def criar_membro(equipe):
+    novo = ET.SubElement(equipe, "EquipeExec")
+    campos = [
+        "NomeMbEqExec", "BRMbEqExec", "DocMbEqExec", "TitulacaoMbEqExec",
+        "FuncaoMbEqExec", "HhMbEqExec", "MesMbEqExec", "HoraMesMbEqExec"
+    ]
+    for tag in campos:
+        ET.SubElement(novo, tag).text = ""
+    return novo
+
+def editar_membro(membro, indice):
+    nome_campos_membros = {
+    "NomeMbEqExec": "Nome do Membro",
+    "BRMbEqExec": "Nacionalidade Brasileira ?",
+    "DocMbEqExec": "Documento (CPF ou Passaporte)",
+    "TitulacaoMbEqExec": "Código Titulação",
+    "FuncaoMbEqExec": "Código da Função",
+    "HhMbEqExec": "valor da hora trabalhada",
+    "MesMbEqExec": "Meses de Atuação",
+    "HoraMesMbEqExec": "Horas por Mês",
+}
+    dados = {}
+    col1, col2 = st.columns(2)
+    for i, campo in enumerate(membro):
+        with (col1 if i % 2 == 0 else col2):
+            nome_campos = nome_campos_membros.get(campo.tag, campo.tag)
+            valor = st.text_input(nome_campos, campo.text or "", key=f"{campo.tag}_{indice}")
+            dados[campo.tag] = valor
+    return dados
+
+def excluir_membro(equipe, membro):
+    equipe.remove(membro)
+
+#---------------------------------------------FIM Funções de manipulaçao de membros----------------
 
 # Edita executora e membros dentro de <PD_EquipeExec>
 def editar_executora_equipe(root, tree, xml_path):
@@ -28,23 +111,11 @@ def editar_executora_equipe(root, tree, xml_path):
         st.error("A tag <Executoras> não foi encontrada em <PD_EquipeExec>.")
         return None, []
 
-    executora = None
-    for ex in executoras.findall("Executora"):
-        if (
-            ex.findtext("CNPJExec") == "Número"
-            and ex.findtext("RazaoSocialExec") == "Texto"
-            and ex.findtext("UfExec") == "UF"
-        ):
-            executora = ex
-            break
-
-    if executora is None:
-        executora = executoras.find("Executora")
+    executora = executoras.find("Executora")
 
     if executora is not None:
-        st.subheader("🏛️ Editar Executora")
+        st.subheader("Editar Executora")
 
-        # Editar campos principais
         cnpj = st.text_input("CNPJ da Executora", executora.findtext("CNPJExec", ""), key="cnpj_exec")
         razao = st.text_input("Razão Social", executora.findtext("RazaoSocialExec", ""), key="razao_exec")
         uf = st.text_input("UF", executora.findtext("UfExec", ""), key="uf_exec")
@@ -53,49 +124,55 @@ def editar_executora_equipe(root, tree, xml_path):
         executora.find("RazaoSocialExec").text = razao
         executora.find("UfExec").text = uf
 
-        # Membros da equipe
+        st.markdown("---")
+        st.subheader("👥 Membros da Equipe Executora")
+
         equipe = executora.find("Equipe")
         if equipe is None:
             equipe = ET.SubElement(executora, "Equipe")
 
-        st.markdown("---")
-        st.subheader("👥 Membros da Equipe Executora")
-
         membros_lista = equipe.findall("EquipeExec")
         nomes = [m.findtext("NomeMbEqExec") or f"Membro {i + 1}" for i, m in enumerate(membros_lista)]
 
-        NOME_NOVO = "➕ Novo Membro"
-        selecionado = st.selectbox("Selecione um membro para editar", nomes + [NOME_NOVO], key="select_membro")
+        nome_novo = "➕ Novo Membro"
+        selecionado = st.selectbox("Selecione um membro para editar ou adicionar", nomes + [nome_novo], key="select_membro")
 
-        # Adicionar novo membro se selecionado
-        if selecionado == NOME_NOVO:
-            novo = ET.SubElement(equipe, "EquipeExec")
-            for tag in [
-                "NomeMbEqExec", "BRMbEqExec", "DocMbEqExec", "TitulacaoMbEqExec",
-                "FuncaoMbEqExec", "HhMbEqExec", "MesMbEqExec", "HoraMesMbEqExec"
-            ]:
-                ET.SubElement(novo, tag).text = ""
-            tree.write(xml_path, encoding="utf-8", xml_declaration=True)
-            st.rerun()
+        if selecionado == nome_novo:
+            membro = criar_membro(equipe)
+            membros_lista.append(membro)
+            st.success("Novo membro criado. Preencha os dados abaixo.")
+        else:
+            indice = nomes.index(selecionado)
+            membro = membros_lista[indice]
 
-        # Atualizar dados do membro selecionado
-        indice = nomes.index(selecionado) if selecionado in nomes else len(membros_lista) - 1
-        membro = membros_lista[indice]
+        dados_atualizados = editar_membro(membro, membros_lista.index(membro))
 
-        st.markdown(f"### ✏️ Dados de {selecionado}")
-        dados = {}
-        for campo in membro:
-            valor = st.text_input(f"{campo.tag} - {selecionado}", campo.text or "", key=f"{campo.tag}_{indice}")
-            dados[campo.tag] = valor
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Salvar alterações", key="btn_salvar"):
+                for campo in membro:
+                    campo.text = dados_atualizados.get(campo.tag, "")
+                tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+                st.success("Alterações salvas.")
+                st.rerun()
 
-        membros_exec = [(membro, dados)]
+        with col2:
+            if st.button("Excluir membro", key="btn_excluir"):
+                excluir_membro(equipe, membro)
+                tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+                st.success("Membro excluído.")
+                st.rerun()
+
+        membros_exec = [(membro, dados_atualizados)]
         return executora, membros_exec
 
     else:
-        st.error("❌ Nenhuma tag <Executora> foi encontrada.")
+        st.error("Nenhuma tag <Executora> foi encontrada.")
         return None, []
-
     
+#----------------------------------------------------------------------------------------------
+#----------------------------------FIM CAMPOS PRINCIPAIS EXECUTORA-----------------------------
+#----------------------------------------------------------------------------------------------
 
 # Edita o bloco <PD_Etapas>
 def editar_etapas(root, tree, xml_path):
