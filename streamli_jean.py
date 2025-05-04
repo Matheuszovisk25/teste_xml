@@ -74,8 +74,7 @@ def criar_membro(equipe):
         ET.SubElement(novo, tag).text = ""
     return novo
 
-def editar_membro(membro, indice):
-    nome_campos_membros = {
+nome_campos_membros = {
     "NomeMbEqExec": "Nome do Membro",
     "BRMbEqExec": "Nacionalidade Brasileira ?",
     "DocMbEqExec": "Documento (CPF ou Passaporte)",
@@ -85,6 +84,8 @@ def editar_membro(membro, indice):
     "MesMbEqExec": "Meses de Atuação",
     "HoraMesMbEqExec": "Horas por Mês",
 }
+
+def editar_membro(membro, indice):    
     dados = {}
     col1, col2 = st.columns(2)
     for i, campo in enumerate(membro):
@@ -175,6 +176,16 @@ def editar_executora_equipe(root, tree, xml_path):
 #----------------------------------------------------------------------------------------------
 
 # Edita o bloco <PD_Etapas>
+# Função auxiliar: cria nova etapa
+def criar_nova_etapa(pd_etapas, tree, xml_path):
+    nova = ET.SubElement(pd_etapas, "Etapa")
+    ET.SubElement(nova, "EtapaN").text = f"{len(pd_etapas.findall('Etapa')) + 1:02}"
+    ET.SubElement(nova, "Atividades").text = ""
+    ET.SubElement(nova, "MesExecEtapa").text = ""
+    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+    st.rerun()
+
+# Edita o bloco <PD_Etapas>
 def editar_etapas(root, tree, xml_path):
     pd_etapas = root.find(".//PD_Etapas")
     if pd_etapas is None:
@@ -182,32 +193,55 @@ def editar_etapas(root, tree, xml_path):
         return []
 
     etapas = pd_etapas.findall("Etapa")
-    nomes_etapas = [
-        f"Etapa {etapa.findtext('EtapaN') or i+1}" 
-        for i, etapa in enumerate(etapas)
-    ]
 
-    selecionada = st.selectbox("Selecione uma etapa para editar", nomes_etapas + ["Nova Etapa"], key="etapa_select")
+    # Resumo das etapas
+    with st.expander("📋 Resumo das Etapas", expanded=False):
+        for i, etapa in enumerate(etapas):
+            nome = etapa.findtext("EtapaN") or f"{i+1}"
+            atividades = etapa.findtext("Atividades") or ""
+            st.markdown(f"**Etapa {nome}**: {atividades[:80]}...")
 
-    if selecionada == "Nova Etapa":
-        nova = ET.SubElement(pd_etapas, "Etapa")
-        ET.SubElement(nova, "EtapaN").text = f"{len(etapas)+1:02}"
-        ET.SubElement(nova, "Atividades").text = ""
-        ET.SubElement(nova, "MesExecEtapa").text = ""
-        tree.write(xml_path, encoding="utf-8", xml_declaration=True)
-        st.rerun()
+    nomes_etapas = [f"Etapa {etapa.findtext('EtapaN') or i+1}" for i, etapa in enumerate(etapas)]
+    selecionada = st.selectbox("Selecione uma etapa para editar", nomes_etapas + ["➕ Nova Etapa"], key="etapa_select")
+
+    if selecionada == "➕ Nova Etapa":
+        criar_nova_etapa(pd_etapas, tree, xml_path)
 
     indice = nomes_etapas.index(selecionada) if selecionada in nomes_etapas else len(etapas) - 1
     etapa = etapas[indice]
 
     st.markdown(f"### Dados de {selecionada}")
     campos = {}
+
+    # Campo de número da etapa com tratamento de erro
+    try:
+        etapa_n_atual = int(etapa.findtext("EtapaN"))
+    except (TypeError, ValueError):
+        etapa_n_atual = indice + 1  
+
+    nova_ordem = st.number_input("Número da Etapa (EtapaN)", min_value=1, value=etapa_n_atual, key=f"etapan_{indice}")
+    etapa.find("EtapaN").text = f"{nova_ordem:02}"
+    campos["EtapaN"] = f"{nova_ordem:02}"
+
     for campo in etapa:
+        if campo.tag == "EtapaN":
+            continue
         valor = st.text_area(f"{campo.tag} - {selecionada}", campo.text or "", height=80, key=f"{campo.tag}_{indice}")
         campos[campo.tag] = valor
 
-    return [(etapa, campos)]
+    # Atualiza os textos
+    for tag, valor in campos.items():
+        campo = etapa.find(tag)
+        if campo is not None:
+            campo.text = valor
 
+    if st.button(f"🗑️ Excluir {selecionada}", key=f"excluir_{indice}"):
+        pd_etapas.remove(etapa)
+        tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+        st.success(f"{selecionada} removida com sucesso!")
+        st.rerun()
+
+    return [(etapa, campos)]
 
 def editar_recursos(root, tree, xml_path):
     pd_recursos = root.find(".//PD_Recursos")
@@ -224,12 +258,16 @@ def editar_recursos(root, tree, xml_path):
         tree.write(xml_path, encoding="utf-8", xml_declaration=True)
         st.rerun()
 
-    # Empresa financiadora
-    cod_empresa = st.text_input("Código da Empresa", recurso_empresa.findtext("CodEmpresa", ""), key="cod_empresa")
-    recurso_empresa.find("CodEmpresa").text = cod_empresa
+    st.subheader("🏢 Empresa Financiadora")
+    col1, col2 = st.columns(2)
+    with col1:
+        cod_empresa = st.text_input("Código da Empresa", recurso_empresa.findtext("CodEmpresa", ""), key="cod_empresa")
+        recurso_empresa.find("CodEmpresa").text = cod_empresa
 
-    # Execução dos recursos
     dest_recursos = recurso_empresa.find("DestRecursos")
+    if dest_recursos is None:
+        dest_recursos = ET.SubElement(recurso_empresa, "DestRecursos")
+
     dest_exec = dest_recursos.find("DestRecursosExec")
     if dest_exec is None:
         dest_exec = ET.SubElement(dest_recursos, "DestRecursosExec")
@@ -238,63 +276,99 @@ def editar_recursos(root, tree, xml_path):
         tree.write(xml_path, encoding="utf-8", xml_declaration=True)
         st.rerun()
 
-    cnpj_exec = st.text_input("CNPJ da Executora que recebeu o recurso", dest_exec.findtext("CNPJExec", ""), key="cnpj_dest")
-    dest_exec.find("CNPJExec").text = cnpj_exec
+    with col2:
+        cnpj_exec = st.text_input("CNPJ da Executora que recebeu o recurso", dest_exec.findtext("CNPJExec", ""), key="cnpj_dest")
+        dest_exec.find("CNPJExec").text = cnpj_exec
 
-    # Agrupar categorias contábeis
+    st.divider()
+    st.subheader("📁 Seleção de Categoria Contábil")
+
+    # Lista e mapeia categorias por código
     categorias = dest_exec.findall("CustoCatContabil")
-    categorias_map = {}
+    codigos_map = {}
+    for i, grupo in enumerate(categorias):
+        cod = grupo.findtext("CategoriaContabil") or f"sem_codigo_{i}"
+        num_itens = len(grupo.findall("ItemDespesa"))
+        resumo = f"{cod} - {num_itens} item{'s' if num_itens != 1 else ''}"
+        codigos_map[cod] = {"grupo": grupo, "resumo": resumo}
 
-    for cat in categorias:
-        cod = cat.findtext("CategoriaContabil", "")
-        if cod in ("Código", "", None):
-            cod = "ST"
-            cat.find("CategoriaContabil").text = "ST"
+    codigos_disponiveis = list(codigos_map.keys())
 
-        if cod not in categorias_map:
-            categorias_map[cod] = []
-        categorias_map[cod].append(cat)
+    # Inicializa ou mantém a categoria selecionada
+    if "categoria_codigo" not in st.session_state:
+        st.session_state["categoria_codigo"] = codigos_disponiveis[0] if codigos_disponiveis else None
 
-    # Mostrar cada grupo de categoria contábil
-    for cod_cat, grupos in categorias_map.items():
-        for grupo_id, grupo in enumerate(grupos):
-            with st.expander(f"Categoria Contábil: {cod_cat} #{grupo_id+1}", expanded=False):
-                itens = grupo.findall("ItemDespesa")
-                for idx, item in enumerate(itens):
-                    st.markdown(f"**Item de Despesa {idx+1}**")
-                    for campo in item:
-                        item.find(campo.tag).text = st.text_area(
-                            f"{campo.tag} ({cod_cat} - Item {idx+1})",
-                            item.findtext(campo.tag) or "",
-                            height=80,
-                            key=f"{campo.tag}_{cod_cat}_{grupo_id}_{idx}"
-                        )
-                    st.markdown("---")
+    # Lista dos rótulos resumidos
+    opcoes_resumo = [codigos_map[c]["resumo"] for c in codigos_disponiveis]
+    indice_atual = codigos_disponiveis.index(st.session_state["categoria_codigo"]) if st.session_state["categoria_codigo"] in codigos_disponiveis else 0
 
-                # Adicionar novo item nessa categoria
-                if st.button(f"Adicionar novo item em {cod_cat} #{grupo_id+1}", key=f"add_{cod_cat}_{grupo_id}"):
-                    novo_item = ET.SubElement(grupo, "ItemDespesa")
-                    for tag in ["NomeItem", "JustificaItem", "QtdeItem", "ValorIndItem", "TipoItem", "ItemLabE", "ItemLabN"]:
-                        ET.SubElement(novo_item, tag).text = ""
-                    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
-                    st.rerun()
-
-    # -------------------------
-    # Criar nova categoria contábil
-    # -------------------------
-    st.markdown("## Criar nova Categoria Contábil")
-    nova_cat = st.selectbox(
-        "Escolha a categoria contábil para adicionar", 
-        ["ST", "MC", "MP", "VD", "OU"], 
-        key=f"nova_categoria_{len(categorias_map)}"
+    selecionado_resumo = st.selectbox(
+        "Escolha a categoria para editar",
+        opcoes_resumo + ["➕ Nova Categoria Contábil"],
+        index=indice_atual
     )
 
-    if st.button("➕ Adicionar nova categoria contábil", key="btn_add_categoria"):
-        nova = ET.SubElement(dest_exec, "CustoCatContabil")
-        ET.SubElement(nova, "CategoriaContabil").text = nova_cat
+    # Atualiza categoria selecionada
+    if selecionado_resumo != "➕ Nova Categoria Contábil":
+        # Extrai o código da categoria a partir do resumo
+        codigo = selecionado_resumo.split(" - ")[0]
+        st.session_state["categoria_codigo"] = codigo
+    else:
+        nova_cat = st.selectbox("Categoria:", ["ST", "MP", "MC", "VD", "OU"], key="nova_cat_codigo")
+        if st.button("✅ Adicionar nova categoria"):
+            nova = ET.SubElement(dest_exec, "CustoCatContabil")
+            ET.SubElement(nova, "CategoriaContabil").text = nova_cat
+            st.session_state["categoria_codigo"] = nova_cat
+            tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+            st.success("Nova categoria criada!")
+            st.rerun()
+        return
+
+    # Grupo e código atual
+    codigo = st.session_state["categoria_codigo"]
+    grupo_selecionado = codigos_map[codigo]["grupo"]
+
+    st.markdown(f"### ✏️ Editando categoria: **{codigo}**")
+
+    if st.button(f"❌ Excluir categoria contábil '{codigo}'", key=f"excluir_categoria_{codigo}"):
+        dest_exec.remove(grupo_selecionado)
+        novo_codigos = [c for c in codigos_disponiveis if c != codigo]
+        st.session_state["categoria_codigo"] = novo_codigos[0] if novo_codigos else None
         tree.write(xml_path, encoding="utf-8", xml_declaration=True)
-        st.success(f"Categoria '{nova_cat}' adicionada!")
+        st.success(f"Categoria '{codigo}' excluída com sucesso.")
         st.rerun()
+
+    itens = grupo_selecionado.findall("ItemDespesa")
+    for idx, item in enumerate(itens):
+        with st.expander(f"🧾 Item de Despesa {idx+1}", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                item.find("NomeItem").text = st.text_input("Nome do Item", item.findtext("NomeItem") or "", key=f"nome_{codigo}_{idx}")
+                item.find("QtdeItem").text = st.text_input("Quantidade", item.findtext("QtdeItem") or "", key=f"qtde_{codigo}_{idx}")
+                item.find("ValorIndItem").text = st.text_input("Valor Unitário", item.findtext("ValorIndItem") or "", key=f"valor_{codigo}_{idx}")
+            with col2:
+                item.find("TipoItem").text = st.text_input("Tipo", item.findtext("TipoItem") or "", key=f"tipo_{codigo}_{idx}")
+                item.find("ItemLabE").text = st.text_input("ItemLabE", item.findtext("ItemLabE") or "", key=f"labe_{codigo}_{idx}")
+                item.find("ItemLabN").text = st.text_input("ItemLabN", item.findtext("ItemLabN") or "", key=f"labn_{codigo}_{idx}")
+
+            item.find("JustificaItem").text = st.text_area(
+                "Justificativa", item.findtext("JustificaItem") or "", height=100, key=f"just_{codigo}_{idx}"
+            )
+
+            if st.button(f"❌ Remover Item {idx+1}", key=f"remover_item_{codigo}_{idx}"):
+                grupo_selecionado.remove(item)
+                tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+                st.success("Item removido com sucesso.")
+                st.rerun()
+
+    if st.button(f"➕ Adicionar novo item em {codigo}", key=f"add_item_{codigo}"):
+        novo_item = ET.SubElement(grupo_selecionado, "ItemDespesa")
+        for tag in ["NomeItem", "JustificaItem", "QtdeItem", "ValorIndItem", "TipoItem", "ItemLabE", "ItemLabN"]:
+            ET.SubElement(novo_item, tag).text = ""
+        tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+        st.success("Novo item adicionado.")
+        st.rerun()
+
 
 # Salva o XML com formatação indentada
 def salvar_edicoes(campos_base, rel_final, membros_exec, etapas_editadas, tree, xml_path):
